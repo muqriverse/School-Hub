@@ -1,0 +1,332 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.setupComplete == true
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin';
+    }
+
+    function isDesignatedAdminAccount() {
+      return signedIn()
+        && request.auth.token.email == 'knightt.fc@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function validSchool(schoolId, schoolName) {
+      return (schoolId == 'sekolah-menengah-kebangsaan-seri-bintang-selatan'
+          && schoolName == 'Sekolah Menengah Kebangsaan Seri Bintang Selatan')
+        || (schoolId == 'sekolah-menengah-kebangsaan-cochrane'
+          && schoolName == 'Sekolah Menengah Kebangsaan Cochrane')
+        || (schoolId == 'sekolah-menengah-kebangsaan-bandar-baru-ampang'
+          && schoolName == 'Sekolah Menengah Kebangsaan Bandar Baru Ampang')
+        || (schoolId == 'sekolah-menengah-kebangsaan-victoria'
+          && schoolName == 'Sekolah Menengah Kebangsaan Victoria')
+        || (schoolId == 'sekolah-menengah-kebangsaan-st-john'
+          && schoolName == 'Sekolah Menengah Kebangsaan St. John');
+    }
+
+    function validAdminProfile(schoolId, schoolName) {
+      return schoolId == 'all-schools' && schoolName == 'Semua sekolah';
+    }
+
+    function isSchoolMember(schoolId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.setupComplete == true
+        && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin'
+          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId == schoolId);
+    }
+
+    function isSchoolStaff(schoolId) {
+      return isSchoolMember(schoolId)
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['Guru', 'PK HEM', 'Admin'];
+    }
+
+    function isSchoolManager(schoolId) {
+      return isSchoolMember(schoolId)
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['PK HEM', 'Admin'];
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly([
+          'schoolId', 'schoolName', 'role', 'createdAt', 'setupComplete'
+        ])
+        && request.resource.data.keys().hasAll([
+          'schoolId', 'schoolName', 'role', 'createdAt', 'setupComplete'
+        ])
+        && request.resource.data.schoolId is string
+        && request.resource.data.schoolId.size() > 0
+        && request.resource.data.schoolName is string
+        && request.resource.data.schoolName.size() > 0
+        && ((request.resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM']
+            && validSchool(request.resource.data.schoolId, request.resource.data.schoolName))
+          || (request.resource.data.role == 'Admin'
+            && isDesignatedAdminAccount()
+            && validAdminProfile(request.resource.data.schoolId, request.resource.data.schoolName)))
+        && request.resource.data.setupComplete == true
+        && request.resource.data.createdAt == request.time;
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && (!resource.data.keys().hasAll(['schoolId', 'schoolName'])
+          || !resource.data.keys().hasAny(['setupComplete'])
+          || resource.data.setupComplete != true
+          || !validSchool(resource.data.schoolId, resource.data.schoolName))
+        && request.resource.data.keys().hasOnly([
+          'schoolId', 'schoolName', 'role', 'createdAt', 'setupComplete'
+        ])
+        && request.resource.data.keys().hasAll([
+          'schoolId', 'schoolName', 'role', 'createdAt', 'setupComplete'
+        ])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['schoolId', 'schoolName', 'role', 'setupComplete'])
+        && (resource.data.role != 'Admin'
+          || request.resource.data.role == 'Admin')
+        && request.resource.data.schoolId is string
+        && request.resource.data.schoolId.size() > 0
+        && request.resource.data.schoolName is string
+        && request.resource.data.schoolName.size() > 0
+        && ((request.resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM']
+            && validSchool(request.resource.data.schoolId, request.resource.data.schoolName))
+          || (request.resource.data.role == 'Admin'
+            && isDesignatedAdminAccount()
+            && validAdminProfile(request.resource.data.schoolId, request.resource.data.schoolName)))
+        && request.resource.data.setupComplete == true;
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && isDesignatedAdminAccount()
+        && resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM', 'Admin']
+        && request.resource.data.keys().hasOnly([
+          'schoolId', 'schoolName', 'role', 'createdAt', 'setupComplete'
+        ])
+        && request.resource.data.keys().hasAll([
+          'schoolId', 'schoolName', 'role', 'createdAt', 'setupComplete'
+        ])
+        && request.resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM', 'Admin']
+        && request.resource.data.setupComplete == true
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['schoolId', 'schoolName', 'role', 'setupComplete'])
+        && ((request.resource.data.role == 'Admin'
+            && validAdminProfile(request.resource.data.schoolId, request.resource.data.schoolName))
+          || (request.resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM']
+            && validSchool(request.resource.data.schoolId, request.resource.data.schoolName)));
+      allow update: if isAdmin()
+        && resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM']
+        && request.resource.data.role in ['Guru', 'Ibu bapa', 'PK HEM']
+        && request.resource.data.setupComplete == true
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['schoolId', 'schoolName', 'role', 'lastSchoolTransferRequestId'])
+        && validSchool(request.resource.data.schoolId, request.resource.data.schoolName)
+        && request.resource.data.lastSchoolTransferRequestId is string
+        && get(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.status == 'pending'
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.status == 'approved'
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.teacherId == userId
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.fromSchoolId == resource.data.schoolId
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.toSchoolId == request.resource.data.schoolId
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.toSchoolName == request.resource.data.schoolName
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.requesterRole == resource.data.role
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.get(
+          'toRole',
+          getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.requesterRole
+        ) == request.resource.data.role
+        && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.reviewedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /schoolTransferRequests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'teacherId', 'teacherName', 'teacherEmail', 'fromSchoolName',
+          'requesterRole', 'fromSchoolId', 'toSchoolName', 'toSchoolId',
+          'toRole', 'reason', 'status', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'teacherId', 'teacherName', 'teacherEmail', 'fromSchoolName',
+          'requesterRole', 'fromSchoolId', 'toSchoolName', 'toSchoolId',
+          'toRole', 'reason', 'status', 'createdAt'
+        ])
+        && request.resource.data.teacherId == request.auth.uid
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['Guru', 'PK HEM']
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.setupComplete == true
+        && request.resource.data.requesterRole == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        && request.resource.data.fromSchoolId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolId
+        && request.resource.data.fromSchoolName == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolName
+        && validSchool(request.resource.data.toSchoolId, request.resource.data.toSchoolName)
+        && (request.resource.data.toSchoolId != request.resource.data.fromSchoolId
+          || request.resource.data.toRole != request.resource.data.requesterRole)
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() <= 500
+        && request.resource.data.teacherName is string
+        && request.resource.data.teacherName.size() <= 120
+        && request.resource.data.teacherEmail is string
+        && request.resource.data.teacherEmail.size() <= 320
+        && request.resource.data.requesterRole in ['Guru', 'PK HEM']
+        && request.resource.data.toRole in ['Guru', 'Ibu bapa', 'PK HEM']
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.teacherId == request.auth.uid);
+      allow update: if isAdmin()
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /schools/{schoolId}/lostItems/{itemId} {
+      allow read: if isSchoolMember(schoolId);
+      allow create: if isSchoolStaff(schoolId)
+        && request.resource.data.keys().hasOnly([
+          'title', 'description', 'location', 'claimed', 'createdBy',
+          'createdAt', 'image'
+        ])
+        && request.resource.data.keys().hasAll([
+          'title', 'location', 'claimed', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.location is string
+        && request.resource.data.location.size() > 0
+        && request.resource.data.location.size() <= 160
+        && (!('description' in request.resource.data.keys())
+          || (request.resource.data.description is string
+            && request.resource.data.description.size() <= 300))
+        && request.resource.data.claimed == false
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (!('image' in request.resource.data.keys())
+          || (request.resource.data.image is bytes
+            && request.resource.data.image.size() <= 700000));
+      allow update: if isSchoolStaff(schoolId)
+        && resource.data.claimed == false
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['claimed', 'claimedBy', 'claimedAt'])
+        && request.resource.data.claimed == true
+        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.claimedAt == request.time;
+      allow delete: if isSchoolManager(schoolId);
+
+      match /comments/{commentId} {
+        function itemExists() {
+          return exists(
+            /databases/$(database)/documents/schools/$(schoolId)/lostItems/$(itemId)
+          );
+        }
+
+        allow read: if isSchoolMember(schoolId) && itemExists();
+        allow create: if isSchoolMember(schoolId)
+          && itemExists()
+          && request.resource.data.keys().hasOnly([
+            'authorId', 'authorName', 'message', 'createdAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'authorId', 'authorName', 'message', 'createdAt'
+          ])
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.authorName is string
+          && request.resource.data.authorName.size() > 0
+          && request.resource.data.authorName.size() <= 120
+          && request.resource.data.message is string
+          && request.resource.data.message.size() > 0
+          && request.resource.data.message.size() <= 500
+          && request.resource.data.createdAt == request.time;
+        allow delete: if isSchoolManager(schoolId) && itemExists();
+        allow update: if false;
+      }
+    }
+
+    match /schools/{schoolId}/services/facilityReports/items/{itemId} {
+      allow read: if isSchoolStaff(schoolId);
+      allow create: if isSchoolStaff(schoolId)
+        && request.resource.data.keys().hasOnly([
+          'title', 'location', 'status', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'title', 'location', 'status', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.location is string
+        && request.resource.data.location.size() > 0
+        && request.resource.data.location.size() <= 160
+        && request.resource.data.status == 'Reported'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update: if isSchoolManager(schoolId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedBy', 'updatedAt'])
+        && request.resource.data.status in ['Reported', 'In Progress', 'Done']
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isSchoolManager(schoolId);
+    }
+
+    match /schools/{schoolId}/services/bookings/items/{itemId} {
+      allow read: if isSchoolStaff(schoolId);
+      allow create: if isSchoolStaff(schoolId)
+        && request.resource.data.keys().hasOnly([
+          'title', 'date', 'startTime', 'endTime', 'status', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'title', 'date', 'startTime', 'endTime', 'status', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.date is string
+        && request.resource.data.date.size() > 0
+        && request.resource.data.date.size() <= 160
+        && request.resource.data.startTime is string
+        && request.resource.data.startTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && request.resource.data.endTime is string
+        && request.resource.data.endTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && request.resource.data.startTime < request.resource.data.endTime
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update: if isSchoolManager(schoolId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedBy', 'updatedAt'])
+        && request.resource.data.status in ['Pending', 'Approved']
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isSchoolManager(schoolId);
+    }
+
+    match /schools/{schoolId}/services/announcements/items/{itemId} {
+      allow read: if isSchoolMember(schoolId);
+      allow create: if isSchoolManager(schoolId)
+        && request.resource.data.keys().hasOnly([
+          'title', 'body', 'category', 'eventDate', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'title', 'body', 'category', 'eventDate', 'createdBy', 'createdAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 1000
+        && request.resource.data.category in ['MAKLUMAN', 'PENTING', 'AKTIVITI']
+        && request.resource.data.eventDate is timestamp
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update: if false;
+      allow delete: if isSchoolManager(schoolId);
+    }
+  }
+}
