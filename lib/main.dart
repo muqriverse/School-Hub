@@ -13,6 +13,8 @@ import 'data/lost_found_repository.dart';
 import 'data/school_services_repository.dart';
 import 'data/school_transfer_repository.dart';
 import 'data/schools.dart';
+import 'admin_dashboard.dart';
+import 'admin_school_selector.dart';
 import 'firebase_options.dart';
 import 'login_page.dart';
 
@@ -514,9 +516,12 @@ class _MainShellState extends State<MainShell> {
   int _tab = 0;
   String _role = 'Guru';
   String _school = supportedSchools.first;
+  String _adminSelectedSchool = supportedSchools.first;
   bool _profileReady = false;
   bool _needsProfileSetup = false;
   Object? _profileError;
+  final Set<String> _shownAnnouncementIds = {};
+  final Set<String> _scheduledAnnouncementIds = {};
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _profileSubscription;
 
@@ -681,18 +686,26 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  void _openModule(String module) {
+  void _openModule(String module, {String? school}) {
+    final moduleSchool =
+        school ??
+        (_role == 'Admin' && module != 'Kelulusan tukar sekolah'
+            ? _adminSelectedSchool
+            : _school);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ModulePage(
           module: module,
           role: _role,
-          school: _school,
+          school: moduleSchool,
           user: widget.user,
         ),
       ),
     );
   }
+
+  void _openAdminModule(String module, String school) =>
+      _openModule(module, school: school == _allSchoolsName ? _school : school);
 
   String get _displayName {
     final name = widget.user?.displayName?.trim();
@@ -723,17 +736,57 @@ class _MainShellState extends State<MainShell> {
 
   void _setTab(int index) => setState(() => _tab = index);
 
+  void _showAnnouncementPopup(SchoolAnnouncement announcement) {
+    if (_shownAnnouncementIds.contains(announcement.id) ||
+        !_scheduledAnnouncementIds.add(announcement.id)) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduledAnnouncementIds.remove(announcement.id);
+      if (!mounted ||
+          _tab != 0 ||
+          !_shownAnnouncementIds.add(announcement.id)) {
+        return;
+      }
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _AnnouncementPopup(announcement: announcement),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
-      _HomePage(
-        role: _role,
-        school: _school,
-        user: widget.user,
-        displayName: _displayName,
-        onOpenModule: _openModule,
-        onNotifications: () => _openModule('Pengumuman'),
-      ),
+      if (_role == 'Admin')
+        AdminDashboard(
+          user: widget.user,
+          displayName: _displayName,
+          onOpenModule: _openAdminModule,
+          onCreateAnnouncement: () {
+            final user = widget.user;
+            if (user != null) {
+              _showAnnouncementEditor(
+                context,
+                _allSchoolsName,
+                user,
+                isGlobal: true,
+              );
+            }
+          },
+        )
+      else
+        _HomePage(
+          role: _role,
+          school: _school,
+          user: widget.user,
+          displayName: _displayName,
+          onOpenModule: _openModule,
+          onNotifications: () => _openModule('Pengumuman'),
+          onShowAnnouncement: _showAnnouncementPopup,
+        ),
       NoticePage(school: _school, user: widget.user, role: _role),
       ServicesPage(onOpenModule: _openModule, role: _role),
       ProfilePage(
@@ -745,6 +798,9 @@ class _MainShellState extends State<MainShell> {
     ];
 
     if (_profileReady && _needsProfileSetup) {
+      if (kIsWeb && !_canSetAdminRole) {
+        return _WebAdminOnlyPage(onSignOut: _signOut);
+      }
       return Scaffold(
         body: SafeArea(
           child: _ProfileSetupPage(
@@ -761,12 +817,48 @@ class _MainShellState extends State<MainShell> {
       );
     }
 
+    if (_profileReady && kIsWeb && (!_canSetAdminRole || _role != 'Admin')) {
+      return _WebAdminOnlyPage(onSignOut: _signOut);
+    }
+
+    final isAdminDesktop =
+        kIsWeb &&
+        _canSetAdminRole &&
+        _role == 'Admin' &&
+        MediaQuery.sizeOf(context).width >= 900;
+
     return Scaffold(
       body: SafeArea(
         child: _profileError != null
             ? _ProfileRetryPage(onRetry: _loadUserProfile)
             : !_profileReady
             ? const Center(child: CircularProgressIndicator(color: _purple))
+            : isAdminDesktop
+            ? Row(
+                children: [
+                  _AdminDesktopSidebar(
+                    displayName: _displayName,
+                    email: widget.user?.email ?? '',
+                    selectedIndex: _tab,
+                    selectedSchool: _adminSelectedSchool,
+                    onDestinationSelected: _setTab,
+                    onSchoolSelected: (school) =>
+                        setState(() => _adminSelectedSchool = school),
+                    onSignOut: _signOut,
+                  ),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: KeyedSubtree(
+                        key: ValueKey(_tab),
+                        child: pages[_tab],
+                      ),
+                    ),
+                  ),
+                ],
+              )
             : AnimatedSwitcher(
                 duration: const Duration(milliseconds: 260),
                 switchInCurve: Curves.easeOutCubic,
@@ -774,46 +866,189 @@ class _MainShellState extends State<MainShell> {
                 child: KeyedSubtree(key: ValueKey(_tab), child: pages[_tab]),
               ),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: _ink.withValues(alpha: 0.06),
-              blurRadius: 24,
-              offset: const Offset(0, -5),
+      bottomNavigationBar: isAdminDesktop
+          ? null
+          : Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: _ink.withValues(alpha: 0.06),
+                    blurRadius: 24,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+              ),
+              child: NavigationBar(
+                height: 72,
+                backgroundColor: Colors.white,
+                indicatorColor: _lilac.withValues(alpha: 0.66),
+                selectedIndex: _tab,
+                onDestinationSelected: _setTab,
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home_rounded),
+                    label: 'Utama',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.campaign_outlined),
+                    selectedIcon: Icon(Icons.campaign_rounded),
+                    label: 'Notis',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.grid_view_rounded),
+                    selectedIcon: Icon(Icons.grid_view_rounded),
+                    label: 'Servis',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline_rounded),
+                    selectedIcon: Icon(Icons.person_rounded),
+                    label: 'Profil',
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-        child: NavigationBar(
-          height: 72,
-          backgroundColor: Colors.white,
-          indicatorColor: _lilac.withValues(alpha: 0.66),
-          selectedIndex: _tab,
-          onDestinationSelected: _setTab,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: 'Utama',
+    );
+  }
+}
+
+class _AdminDesktopSidebar extends StatelessWidget {
+  const _AdminDesktopSidebar({
+    required this.displayName,
+    required this.email,
+    required this.selectedIndex,
+    required this.selectedSchool,
+    required this.onDestinationSelected,
+    required this.onSchoolSelected,
+    required this.onSignOut,
+  });
+
+  final String displayName;
+  final String email;
+  final int selectedIndex;
+  final String selectedSchool;
+  final ValueChanged<int> onDestinationSelected;
+  final ValueChanged<String> onSchoolSelected;
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['Ringkasan', 'Papan notis', 'Servis', 'Profil'];
+    const icons = [
+      Icons.dashboard_outlined,
+      Icons.campaign_outlined,
+      Icons.grid_view_rounded,
+      Icons.person_outline_rounded,
+    ];
+
+    return Container(
+      width: 260,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(right: BorderSide(color: Color(0xFFF0EAE2))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(21, 24, 18, 19),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: _peach,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.school_rounded, color: _purple),
+                ),
+                const SizedBox(width: 11),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SchoolHub',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: _purple,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      'PORTAL PENTADBIR',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: _muted,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.campaign_outlined),
-              selectedIcon: Icon(Icons.campaign_rounded),
-              label: 'Notis',
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: AdminSchoolSelector(
+              selectedSchool: selectedSchool,
+              onSelected: onSchoolSelected,
             ),
-            NavigationDestination(
-              icon: Icon(Icons.grid_view_rounded),
-              selectedIcon: Icon(Icons.grid_view_rounded),
-              label: 'Servis',
+          ),
+          const SizedBox(height: 17),
+          for (var index = 0; index < labels.length; index++)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+              child: ListTile(
+                selected: selectedIndex == index,
+                selectedTileColor: _lilac.withValues(alpha: 0.55),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                leading: Icon(
+                  icons[index],
+                  color: selectedIndex == index ? _purple : _muted,
+                ),
+                title: Text(
+                  labels[index],
+                  style: TextStyle(
+                    color: selectedIndex == index ? _ink : _muted,
+                    fontWeight: selectedIndex == index
+                        ? FontWeight.w800
+                        : FontWeight.w600,
+                  ),
+                ),
+                onTap: () => onDestinationSelected(index),
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: 'Profil',
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 5),
+            child: Text(
+              displayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              email,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: OutlinedButton.icon(
+              onPressed: onSignOut,
+              icon: const Icon(Icons.logout_rounded, size: 18),
+              label: const Text('Log keluar'),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -851,6 +1086,48 @@ class _ProfileRetryPage extends StatelessWidget {
             label: const Text('Cuba lagi'),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+class _WebAdminOnlyPage extends StatelessWidget {
+  const _WebAdminOnlyPage({required this.onSignOut});
+
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 430),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.admin_panel_settings_rounded, size: 46),
+              const SizedBox(height: 14),
+              Text(
+                'Portal ini untuk Admin sahaja',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Gunakan aplikasi SchoolHub di telefon untuk akaun sekolah anda.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 18),
+              OutlinedButton.icon(
+                onPressed: onSignOut,
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Log keluar'),
+              ),
+            ],
+          ),
+        ),
       ),
     ),
   );
@@ -985,6 +1262,7 @@ class _HomePage extends StatelessWidget {
     required this.displayName,
     required this.onOpenModule,
     required this.onNotifications,
+    required this.onShowAnnouncement,
   });
 
   final String role;
@@ -993,6 +1271,7 @@ class _HomePage extends StatelessWidget {
   final String displayName;
   final ValueChanged<String> onOpenModule;
   final VoidCallback onNotifications;
+  final ValueChanged<SchoolAnnouncement> onShowAnnouncement;
 
   @override
   Widget build(BuildContext context) => _PageScroll(
@@ -1089,6 +1368,7 @@ class _HomePage extends StatelessWidget {
                   schoolId: schoolIdForName(school),
                 ).watchAnnouncements(),
           onOpenAnnouncements: () => onOpenModule('Pengumuman'),
+          onShowAnnouncement: onShowAnnouncement,
         ),
         const SizedBox(height: 22),
         _HelpCard(onTap: () => onOpenModule('Pengumuman')),
@@ -1101,10 +1381,12 @@ class _HomeAnnouncements extends StatelessWidget {
   const _HomeAnnouncements({
     required this.stream,
     required this.onOpenAnnouncements,
+    required this.onShowAnnouncement,
   });
 
   final Stream<List<SchoolAnnouncement>>? stream;
   final VoidCallback onOpenAnnouncements;
+  final ValueChanged<SchoolAnnouncement> onShowAnnouncement;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1146,11 +1428,10 @@ class _HomeAnnouncements extends StatelessWidget {
                 child: Center(child: CircularProgressIndicator(color: _purple)),
               );
             }
-            final allAnnouncements = snapshot.data!;
-            final announcements = activeAnnouncements(
-              allAnnouncements,
-              now: DateTime.now(),
-            );
+            final announcements = snapshot.data!;
+            if (announcements.isNotEmpty) {
+              onShowAnnouncement(announcements.first);
+            }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1158,7 +1439,7 @@ class _HomeAnnouncements extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 10),
                   child: _TinyLabel(
                     icon: Icons.campaign_rounded,
-                    label: '${announcements.length} pengumuman aktif',
+                    label: '${announcements.length} pengumuman tersedia',
                     color: _purple,
                   ),
                 ),
@@ -1167,10 +1448,10 @@ class _HomeAnnouncements extends StatelessWidget {
                     icon: Icons.campaign_outlined,
                     title: 'Tiada pengumuman aktif',
                     body:
-                        'Pengumuman yang akan datang atau berlangsung akan dipaparkan di sini.',
+                        'Pengumuman akan kekal di sini sehingga dipadam oleh Admin.',
                     color: _lilac,
                   ),
-                for (final notice in announcements.take(2))
+                for (final notice in announcements)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: _AnnouncementCard(
@@ -1183,11 +1464,11 @@ class _HomeAnnouncements extends StatelessWidget {
                           ? const Color(0xFF82907B)
                           : _purple,
                       title: notice.title,
-                      subtitle:
-                          '${_isAnnouncementToday(notice) ? 'Sedang berlangsung' : 'Akan datang'} · ${notice.dateLabel} · ${notice.body}',
+                      subtitle: '${notice.dateLabel} · ${notice.body}',
                       tag: notice.schoolId == _allSchoolsId
                           ? 'SEMUA SEKOLAH · ${notice.category}'
                           : notice.category,
+                      imageBytes: notice.imageBytes,
                       onTap: onOpenAnnouncements,
                     ),
                   ),
@@ -1401,6 +1682,7 @@ class _AnnouncementCard extends StatelessWidget {
     required this.subtitle,
     required this.tag,
     required this.onTap,
+    this.imageBytes,
   });
 
   final IconData icon;
@@ -1409,6 +1691,7 @@ class _AnnouncementCard extends StatelessWidget {
   final String subtitle;
   final String tag;
   final VoidCallback onTap;
+  final Uint8List? imageBytes;
 
   @override
   Widget build(BuildContext context) => _Pressable(
@@ -1420,53 +1703,70 @@ class _AnnouncementCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(19),
         border: Border.all(color: const Color(0xFFF0EAE2)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(14),
+          if (imageBytes != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(13),
+              child: Image.memory(
+                imageBytes!,
+                width: double.infinity,
+                height: 130,
+                fit: BoxFit.cover,
+              ),
             ),
-            child: Icon(icon, color: iconColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tag,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _purple,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.4,
-                  ),
+            const SizedBox(height: 12),
+          ],
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tag,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: _purple,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          Icon(
-            Icons.chevron_right_rounded,
-            color: _muted.withValues(alpha: .7),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: _muted.withValues(alpha: .7),
+              ),
+            ],
           ),
         ],
       ),
@@ -1668,6 +1968,7 @@ class _SchoolAnnouncementsView extends StatelessWidget {
                   date: notice.dateLabel,
                   color: _noticeColor(notice.category),
                   icon: Icons.campaign_rounded,
+                  imageBytes: notice.imageBytes,
                 ),
               ),
             )
@@ -1688,12 +1989,6 @@ Color _noticeColor(String category) {
   }
 }
 
-bool _isAnnouncementToday(SchoolAnnouncement announcement) {
-  final today = DateUtils.dateOnly(DateTime.now());
-  final eventDay = DateUtils.dateOnly(announcement.eventDate);
-  return eventDay == today;
-}
-
 Future<void> _showAnnouncementEditor(
   BuildContext context,
   String school,
@@ -1705,6 +2000,7 @@ Future<void> _showAnnouncementEditor(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    constraints: const BoxConstraints(maxWidth: 620),
     backgroundColor: Colors.transparent,
     builder: (_) => _AnnouncementEditor(isGlobal: isGlobal),
   );
@@ -1723,6 +2019,7 @@ Future<void> _showAnnouncementEditor(
       category: draft.category,
       eventDate: draft.eventDate,
       userId: user.uid,
+      imageBytes: draft.imageBytes,
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1734,10 +2031,15 @@ Future<void> _showAnnouncementEditor(
       SnackBar(
         content: Text(
           error.code == 'permission-denied'
-              ? 'Pengumuman ditolak oleh Firestore. Pastikan akaun anda mempunyai peranan PK HEM/Admin dan Firestore Rules terkini sudah diterbitkan.'
+              ? 'Akses Firestore ditolak. Terbitkan Firestore Rules terkini (termasuk sokongan gambar pengumuman) dan pastikan akaun anda Admin/PK HEM.'
               : 'Pengumuman gagal disimpan (${error.code}).',
         ),
       ),
+    );
+  } on ArgumentError catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error.message?.toString() ?? 'Imej tidak sah.')),
     );
   }
 }
@@ -1748,11 +2050,13 @@ class _AnnouncementDraft {
     this.body,
     this.category,
     this.eventDate,
+    this.imageBytes,
   );
   final String title;
   final String body;
   final String category;
   final DateTime eventDate;
+  final Uint8List? imageBytes;
 }
 
 class _AnnouncementEditor extends StatefulWidget {
@@ -1769,6 +2073,7 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
   final _bodyController = TextEditingController();
   String _category = 'MAKLUMAN';
   DateTime _eventDate = DateUtils.dateOnly(DateTime.now());
+  Uint8List? _imageBytes;
 
   @override
   void dispose() {
@@ -1857,6 +2162,42 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
               maxLength: 1000,
               decoration: _inputDecoration('Penerangan pengumuman'),
             ),
+            const SizedBox(height: 10),
+            const _FormLabel(label: 'Gambar pengumuman (pilihan)'),
+            if (_imageBytes != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.memory(
+                  _imageBytes!,
+                  width: double.infinity,
+                  height: 190,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _imageBytes = null),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  label: const Text('Buang gambar'),
+                ),
+              ),
+            ],
+            OutlinedButton.icon(
+              onPressed: _chooseImage,
+              icon: const Icon(Icons.add_photo_alternate_outlined),
+              label: Text(
+                _imageBytes == null ? 'Pilih gambar' : 'Tukar gambar',
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _purple,
+                side: const BorderSide(color: Color(0xFFD9C8B8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                minimumSize: const Size(double.infinity, 47),
+              ),
+            ),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
@@ -1874,7 +2215,13 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
                   }
                   Navigator.pop(
                     context,
-                    _AnnouncementDraft(title, body, _category, _eventDate),
+                    _AnnouncementDraft(
+                      title,
+                      body,
+                      _category,
+                      _eventDate,
+                      _imageBytes,
+                    ),
                   );
                 },
                 child: const Text('Terbitkan'),
@@ -1885,6 +2232,36 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
       ),
     ),
   );
+
+  Future<void> _chooseImage() async {
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 55,
+      );
+      if (image == null || !mounted) return;
+      final bytes = await image.readAsBytes();
+      if (!mounted) return;
+      if (bytes.length > maxAnnouncementImageBytes) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Saiz gambar terlalu besar. Sila pilih gambar yang lebih kecil.',
+            ),
+          ),
+        );
+        return;
+      }
+      setState(() => _imageBytes = bytes);
+    } on Exception {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gambar tidak dapat dibuka. Cuba lagi.')),
+      );
+    }
+  }
 }
 
 class _NoticeTile extends StatelessWidget {
@@ -1895,6 +2272,7 @@ class _NoticeTile extends StatelessWidget {
     required this.date,
     required this.color,
     required this.icon,
+    this.imageBytes,
   });
 
   final String category;
@@ -1903,6 +2281,7 @@ class _NoticeTile extends StatelessWidget {
   final String date;
   final Color color;
   final IconData icon;
+  final Uint8List? imageBytes;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1935,6 +2314,18 @@ class _NoticeTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 13),
+          if (imageBytes != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Image.memory(
+                imageBytes!,
+                width: double.infinity,
+                height: 220,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(height: 13),
+          ],
           Text(title, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 6),
           Text(
@@ -1951,6 +2342,72 @@ class _NoticeTile extends StatelessWidget {
             ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+class _AnnouncementPopup extends StatelessWidget {
+  const _AnnouncementPopup({required this.announcement});
+
+  final SchoolAnnouncement announcement;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    insetPadding: const EdgeInsets.all(24),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560, maxHeight: 700),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _TinyLabel(
+                    icon: Icons.campaign_rounded,
+                    label: announcement.category,
+                    color: _purple,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Tutup pengumuman',
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            if (announcement.imageBytes != null) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.memory(
+                  announcement.imageBytes!,
+                  width: double.infinity,
+                  height: 250,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Text(
+              announcement.title,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 5),
+            Text(
+              announcement.dateLabel,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              announcement.body,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -2472,7 +2929,7 @@ class _ModulePageState extends State<ModulePage> {
               itemKey: 'lost-${item.id ?? item.title}',
               title: item.title,
               enabled:
-                  widget.role == 'PK HEM' &&
+                  (widget.role == 'PK HEM' || widget.role == 'Admin') &&
                   widget.user != null &&
                   item.id != null,
               onDelete: () => LostFoundRepository(
@@ -2782,7 +3239,7 @@ class _ModulePageState extends State<ModulePage> {
           itemKey: 'report-${report.id ?? report.title}',
           title: report.title,
           enabled:
-              widget.role == 'PK HEM' &&
+              (widget.role == 'PK HEM' || widget.role == 'Admin') &&
               widget.user != null &&
               report.id != null,
           onDelete: () => SchoolServicesRepository(
@@ -2791,7 +3248,7 @@ class _ModulePageState extends State<ModulePage> {
           ).deleteFacilityReport(report.id!),
           child: _ReportCard(
             report: report,
-            canManage: widget.role == 'PK HEM',
+            canManage: widget.role == 'PK HEM' || widget.role == 'Admin',
             onStatusChanged: (status) => _setEntryStatus(
               isBooking: false,
               itemId: report.id,
@@ -2849,7 +3306,7 @@ class _ModulePageState extends State<ModulePage> {
           itemKey: 'booking-${booking.id ?? booking.title}',
           title: booking.title,
           enabled:
-              widget.role == 'PK HEM' &&
+              (widget.role == 'PK HEM' || widget.role == 'Admin') &&
               widget.user != null &&
               booking.id != null,
           onDelete: () => SchoolServicesRepository(
@@ -2858,7 +3315,7 @@ class _ModulePageState extends State<ModulePage> {
           ).deleteBooking(booking.id!),
           child: _BookingCard(
             booking: booking,
-            canManage: widget.role == 'PK HEM',
+            canManage: widget.role == 'PK HEM' || widget.role == 'Admin',
             onStatusChanged: (status) => _setEntryStatus(
               isBooking: true,
               itemId: booking.id,
@@ -4884,13 +5341,21 @@ class _PageScroll extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomClearance = 152 + MediaQuery.viewPaddingOf(context).bottom;
+    final desktop = kIsWeb && MediaQuery.sizeOf(context).width >= 900;
+    final bottomClearance = desktop
+        ? 40.0
+        : 152 + MediaQuery.viewPaddingOf(context).bottom;
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 17, 20, bottomClearance),
+        padding: EdgeInsets.fromLTRB(
+          desktop ? 34 : 20,
+          desktop ? 28 : 17,
+          desktop ? 34 : 20,
+          bottomClearance,
+        ),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620),
+            constraints: BoxConstraints(maxWidth: desktop ? 1220 : 620),
             child: child,
           ),
         ),

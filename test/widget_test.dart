@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:schoolhub/admin_school_selector.dart';
 import 'package:schoolhub/data/school_services_repository.dart';
+import 'package:schoolhub/data/schools.dart';
 import 'package:schoolhub/main.dart';
 
 void main() {
@@ -74,6 +76,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('school selector opens and selects a full school name', (
+    WidgetTester tester,
+  ) async {
+    var selectedSchool = supportedSchools.first;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 260,
+              child: AdminSchoolSelector(
+                selectedSchool: selectedSchool,
+                onSelected: (school) => selectedSchool = school,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text(schoolDisplayName(supportedSchools.first)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pilih sekolah'), findsOneWidget);
+    expect(find.text(supportedSchools.first), findsOneWidget);
+    expect(find.text(supportedSchools.last), findsOneWidget);
+
+    await tester.tap(find.text(supportedSchools[1]));
+    await tester.pumpAndSettle();
+
+    expect(selectedSchool, supportedSchools[1]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('parent services are limited to read-only modules', (
     WidgetTester tester,
   ) async {
@@ -136,6 +173,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Done'), findsWidgets);
+  });
+
+  testWidgets('Admin can update facility report status', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ModulePage(
+          module: 'Aduan fasiliti',
+          role: 'Admin',
+          school: 'Sekolah Menengah Kebangsaan Cochrane',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Done'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('booking form asks for start and end times', (

@@ -310,7 +310,8 @@ service cloud.firestore {
       allow read: if isSchoolMember(schoolId);
       allow create: if isSchoolManager(schoolId)
         && request.resource.data.keys().hasOnly([
-          'title', 'body', 'category', 'eventDate', 'createdBy', 'createdAt'
+          'title', 'body', 'category', 'eventDate', 'createdBy', 'createdAt',
+          'image'
         ])
         && request.resource.data.keys().hasAll([
           'title', 'body', 'category', 'eventDate', 'createdBy', 'createdAt'
@@ -324,7 +325,10 @@ service cloud.firestore {
         && request.resource.data.category in ['MAKLUMAN', 'PENTING', 'AKTIVITI']
         && request.resource.data.eventDate is timestamp
         && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (!('image' in request.resource.data.keys())
+          || (request.resource.data.image is bytes
+            && request.resource.data.image.size() <= 700000));
       allow update: if false;
       allow delete: if isSchoolManager(schoolId);
     }

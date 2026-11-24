@@ -76,9 +76,12 @@ atau caj berasingan; semak pelan projek sebelum mengaktifkannya.
    - Sekolah Menengah Kebangsaan Victoria
    - Sekolah Menengah Kebangsaan St. John
 
-   Gambar Lost & Found dikecilkan dan disimpan sebagai data gambar dalam dokumen
-   Firestore (maksimum 700 KB), jadi Firebase Storage tidak diperlukan. Firestore
-   rules berada dalam `firestore.rules`; selepas mengubahnya, gunakan:
+   Gambar Lost & Found dan pengumuman dikecilkan dan disimpan sebagai data gambar
+   dalam dokumen Firestore (maksimum 700 KB setiap gambar), jadi Firebase Storage
+   tidak diperlukan. Pengumuman yang belum dipadam kekal dalam bahagian **Untuk
+   perhatian**; pengumuman terbaharu dipaparkan sebagai pop-up sekali setiap sesi
+   aplikasi dan boleh ditutup dengan butang pangkah. Firestore rules berada dalam
+   `firestore.rules`; selepas mengubahnya, gunakan:
 
    ```powershell
    firebase deploy --only firestore:rules --project schoolhub-16736
@@ -92,6 +95,33 @@ mempunyai kod jemputan atau pengesahan pihak sekolah.
    ```powershell
    flutter run
    ```
+
+## Portal web Admin
+
+Portal web menggunakan Firebase yang sama dengan aplikasi telefon. Akaun Admin
+boleh log masuk melalui pelayar komputer untuk melihat ringkasan langsung bagi
+aduan, tempahan dan Lost & Found di lima sekolah, menyemak permohonan pertukaran,
+mengurus pengumuman (termasuk gambar) dan mengemas kini servis sekolah. Pilih
+sekolah pada menu sebelah sebelum membuka servis. Butang **Buat pengumuman**
+berada pada dashboard Admin. Akaun bukan Admin tidak boleh menggunakan portal
+web; aplikasi telefon kekal seperti biasa.
+
+Untuk jalankan secara setempat:
+
+```powershell
+flutter run -d chrome
+```
+
+Untuk bina dan terbitkan portal ke Firebase Hosting:
+
+```powershell
+flutter build web
+firebase deploy --only firestore:rules,hosting --project schoolhub-16736
+```
+
+Pastikan Google Sign-In diaktifkan dalam Firebase Authentication, domain Hosting
+dibenarkan di tetapan Authentication, profil akaun Admin sudah lengkap dan
+Firestore rules terkini telah diterbitkan sebelum portal digunakan.
 
 Selepas konfigurasi, pengguna akan log masuk dengan akaun Google dan aplikasi
 akan kembali ke skrin log masuk selepas mereka log keluar. Profil sekolah

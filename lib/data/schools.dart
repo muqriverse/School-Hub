@@ -5,3 +5,6 @@ const supportedSchools = [
   'Sekolah Menengah Kebangsaan Victoria',
   'Sekolah Menengah Kebangsaan St. John',
 ];
+
+String schoolDisplayName(String school) =>
+    school.replaceFirst('Sekolah Menengah Kebangsaan ', 'SMK ');

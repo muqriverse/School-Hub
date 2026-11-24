@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -6,6 +7,7 @@ import 'lost_found_repository.dart' show schoolIdForName;
 import 'schools.dart';
 
 const _allSchoolsId = 'all-schools';
+const maxAnnouncementImageBytes = 700000;
 
 class SchoolServiceEntry {
   const SchoolServiceEntry({
@@ -52,6 +54,7 @@ class SchoolAnnouncement {
     required this.eventDate,
     required this.createdAt,
     required this.schoolId,
+    this.imageBytes,
   });
 
   final String id;
@@ -62,6 +65,7 @@ class SchoolAnnouncement {
   final DateTime eventDate;
   final DateTime createdAt;
   final String schoolId;
+  final Uint8List? imageBytes;
 
   factory SchoolAnnouncement.fromDocument(
     QueryDocumentSnapshot<Map<String, dynamic>> document, {
@@ -90,6 +94,7 @@ class SchoolAnnouncement {
           ? createdAt.toDate()
           : DateTime.fromMillisecondsSinceEpoch(0),
       schoolId: document.id.startsWith('global_') ? _allSchoolsId : schoolId,
+      imageBytes: (data['image'] as Blob?)?.bytes,
     );
   }
 }
@@ -148,6 +153,7 @@ class SchoolServicesRepository {
                 eventDate: announcement.eventDate,
                 createdAt: announcement.createdAt,
                 schoolId: _allSchoolsId,
+                imageBytes: announcement.imageBytes,
               );
             }).toList()..sort(
               (first, second) => second.createdAt.compareTo(first.createdAt),
@@ -319,7 +325,12 @@ class SchoolServicesRepository {
     required String category,
     required DateTime eventDate,
     required String userId,
+    Uint8List? imageBytes,
   }) async {
+    if (imageBytes != null && imageBytes.length > maxAnnouncementImageBytes) {
+      throw ArgumentError('Saiz gambar pengumuman terlalu besar.');
+    }
+
     final data = <String, dynamic>{
       'title': title,
       'body': body,
@@ -328,6 +339,7 @@ class SchoolServicesRepository {
       'createdBy': userId,
       'createdAt': FieldValue.serverTimestamp(),
     };
+    if (imageBytes != null) data['image'] = Blob(imageBytes);
 
     if (schoolId != _allSchoolsId) {
       await _school.doc('announcements').collection('items').add(data);
