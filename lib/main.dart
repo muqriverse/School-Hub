@@ -49,6 +49,18 @@ const _maxLostItemImageBytes = 700000;
 const _adminAccountEmail = 'knightt.fc@gmail.com';
 const _allSchoolsId = 'all-schools';
 const _allSchoolsName = 'Semua sekolah';
+const _facilityReportStatuses = [
+  'Reported',
+  'In Progress',
+  'Repairing',
+  'Done',
+];
+const _facilityReportStages = [
+  'Diterima',
+  'Dalam Siasatan',
+  'Sedang Dibaiki',
+  'Selesai',
+];
 
 class SchoolHubApp extends StatelessWidget {
   const SchoolHubApp({super.key, this.firebaseConfigured = false});
@@ -503,6 +515,156 @@ class _AuthErrorPage extends StatelessWidget {
   );
 }
 
+class _MaintenancePage extends StatefulWidget {
+  const _MaintenancePage();
+
+  @override
+  State<_MaintenancePage> createState() => _MaintenancePageState();
+}
+
+class _MaintenancePageState extends State<_MaintenancePage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _paper,
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, child) {
+                    final pulse =
+                        .96 + (.04 * math.sin(_controller.value * math.pi * 2));
+                    return Transform.scale(scale: pulse, child: child);
+                  },
+                  child: Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFF0DFD0), Color(0xFFE8D6C8)],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _ink.withValues(alpha: 0.10),
+                          blurRadius: 28,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        AnimatedBuilder(
+                          animation: _controller,
+                          builder: (context, child) => Transform.rotate(
+                            angle: _controller.value * math.pi * 2,
+                            child: child,
+                          ),
+                          child: const Icon(
+                            Icons.settings_rounded,
+                            size: 68,
+                            color: _purple,
+                          ),
+                        ),
+                        const Positioned(
+                          bottom: 28,
+                          right: 28,
+                          child: Icon(
+                            Icons.build_rounded,
+                            size: 25,
+                            color: Color(0xFF4A4038),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'Aplikasi Sedang Diselenggara',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Maaf atas kesulitan. SchoolHub buat sementara waktu tidak tersedia kerana penyelenggaraan sedang dijalankan.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _muted, fontSize: 14, height: 1.55),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 11,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0E8DE),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _purple,
+                        ),
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        'Sila cuba semula sebentar lagi',
+                        style: TextStyle(
+                          color: _ink,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key, this.user});
 
@@ -520,6 +682,7 @@ class _MainShellState extends State<MainShell> {
   bool _profileReady = false;
   bool _needsProfileSetup = false;
   Object? _profileError;
+  String? _profileDisplayName;
   final Set<String> _shownAnnouncementIds = {};
   final Set<String> _scheduledAnnouncementIds = {};
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
@@ -573,6 +736,7 @@ class _MainShellState extends State<MainShell> {
     try {
       if (!snapshot.exists) {
         setState(() {
+          _profileDisplayName = null;
           _needsProfileSetup = true;
           _profileReady = true;
           _profileError = null;
@@ -583,6 +747,7 @@ class _MainShellState extends State<MainShell> {
       final schoolName = profile['schoolName'];
       final schoolId = profile['schoolId'];
       final role = profile['role'];
+      final displayName = profile['displayName'];
       if (profile['setupComplete'] != true) {
         if (role == 'Admin' && _canSetAdminRole) {
           _school = _allSchoolsName;
@@ -625,6 +790,10 @@ class _MainShellState extends State<MainShell> {
         throw StateError('Profil sekolah tidak sah.');
       }
       setState(() {
+        _profileDisplayName =
+            displayName is String && displayName.trim().isNotEmpty
+            ? displayName.trim()
+            : null;
         _profileReady = true;
         _profileError = null;
       });
@@ -708,11 +877,50 @@ class _MainShellState extends State<MainShell> {
       _openModule(module, school: school == _allSchoolsName ? _school : school);
 
   String get _displayName {
+    final preferredName = _profileDisplayName?.trim();
+    if (preferredName != null && preferredName.isNotEmpty) {
+      return preferredName;
+    }
     final name = widget.user?.displayName?.trim();
     if (name != null && name.isNotEmpty) return name;
     final email = widget.user?.email;
     if (email != null && email.contains('@')) return email.split('@').first;
     return 'Pengguna';
+  }
+
+  Future<void> _updateDisplayName(String displayName) async {
+    final user = widget.user;
+    final name = displayName.trim();
+    if (user == null || name.isEmpty || name.length > 60) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nama perlu diisi dan tidak melebihi 60 aksara.'),
+        ),
+      );
+      return;
+    }
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update(
+        {'displayName': name},
+      );
+      if (!mounted) return;
+      setState(() => _profileDisplayName = name);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nama paparan berjaya dikemas kini.')),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.code == 'permission-denied'
+                ? 'Akses ditolak. Terbitkan Firestore Rules terkini dahulu.'
+                : 'Nama paparan gagal disimpan (${error.code}).',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _signOut() async {
@@ -759,6 +967,23 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    if (Firebase.apps.isEmpty) return _buildMainShell(context);
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('appConfig')
+          .doc('maintenance')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final enabled = snapshot.data?.data()?['enabled'] == true;
+        if (_profileReady && _role != 'Admin' && enabled) {
+          return const _MaintenancePage();
+        }
+        return _buildMainShell(context);
+      },
+    );
+  }
+
+  Widget _buildMainShell(BuildContext context) {
     final pages = [
       if (_role == 'Admin')
         AdminDashboard(
@@ -793,6 +1018,8 @@ class _MainShellState extends State<MainShell> {
         role: _role,
         school: _school,
         user: widget.user,
+        displayName: _displayName,
+        onUpdateDisplayName: _updateDisplayName,
         onSignOut: _signOut,
       ),
     ];
@@ -1455,14 +1682,7 @@ class _HomeAnnouncements extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: _AnnouncementCard(
-                      icon: notice.category == 'AKTIVITI'
-                          ? Icons.event_available_rounded
-                          : notice.category == 'PENTING'
-                          ? Icons.priority_high_rounded
-                          : Icons.campaign_rounded,
-                      iconColor: _noticeColor(notice.category) == _mint
-                          ? const Color(0xFF82907B)
-                          : _purple,
+                      category: notice.category,
                       title: notice.title,
                       subtitle: '${notice.dateLabel} · ${notice.body}',
                       tag: notice.schoolId == _allSchoolsId
@@ -1520,7 +1740,7 @@ class _WelcomeCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                'KHAMIS, 5 NOVEMBER',
+                _formatMalayDate(DateTime.now()),
                 style: TextStyle(
                   color: _purple.withValues(alpha: 0.95),
                   fontSize: 10,
@@ -1676,8 +1896,7 @@ class _ServiceData {
 
 class _AnnouncementCard extends StatelessWidget {
   const _AnnouncementCard({
-    required this.icon,
-    required this.iconColor,
+    required this.category,
     required this.title,
     required this.subtitle,
     required this.tag,
@@ -1685,8 +1904,7 @@ class _AnnouncementCard extends StatelessWidget {
     this.imageBytes,
   });
 
-  final IconData icon;
-  final Color iconColor;
+  final String category;
   final String title;
   final String subtitle;
   final String tag;
@@ -1694,83 +1912,158 @@ class _AnnouncementCard extends StatelessWidget {
   final Uint8List? imageBytes;
 
   @override
-  Widget build(BuildContext context) => _Pressable(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(19),
-        border: Border.all(color: const Color(0xFFF0EAE2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (imageBytes != null) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(13),
-              child: Image.memory(
-                imageBytes!,
-                width: double.infinity,
-                height: 130,
-                fit: BoxFit.cover,
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      tag,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: _purple,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+  Widget build(BuildContext context) {
+    final iconColor = _noticeIconColor(category);
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(19),
+          border: Border.all(color: const Color(0xFFF0EAE2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (imageBytes != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(13),
+                child: Image.memory(
+                  imageBytes!,
+                  width: double.infinity,
+                  height: 130,
+                  fit: BoxFit.cover,
                 ),
               ),
-              const SizedBox(width: 6),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: _muted.withValues(alpha: .7),
-              ),
+              const SizedBox(height: 12),
             ],
-          ),
-        ],
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: _AnimatedNoticeIcon(
+                    category: category,
+                    color: iconColor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tag,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: _purple,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: _muted.withValues(alpha: .7),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
+    );
+  }
+}
+
+class _AnimatedNoticeIcon extends StatefulWidget {
+  const _AnimatedNoticeIcon({required this.category, required this.color});
+
+  final String category;
+  final Color color;
+
+  @override
+  State<_AnimatedNoticeIcon> createState() => _AnimatedNoticeIconState();
+}
+
+class _AnimatedNoticeIconState extends State<_AnimatedNoticeIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  IconData get _icon => switch (widget.category) {
+    'PENTING' => Icons.priority_high_rounded,
+    'AKTIVITI' => Icons.event_available_rounded,
+    _ => Icons.campaign_rounded,
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller
+        ..stop()
+        ..value = 0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _controller,
+    child: Icon(_icon, color: widget.color, size: 22),
+    builder: (context, child) {
+      final phase = _controller.value * math.pi * 2;
+      final animatedIcon = switch (widget.category) {
+        'PENTING' => Transform.scale(
+          scale: 1 + .12 * ((math.sin(phase) + 1) / 2),
+          child: child,
+        ),
+        'AKTIVITI' => Transform.translate(
+          offset: Offset(0, -4 * math.max(0, math.sin(phase))),
+          child: child,
+        ),
+        _ => Transform.rotate(angle: .12 * math.sin(phase), child: child),
+      };
+      return Center(child: animatedIcon);
+    },
   );
 }
 
@@ -1986,6 +2279,17 @@ Color _noticeColor(String category) {
       return _mint;
     default:
       return _lilac;
+  }
+}
+
+Color _noticeIconColor(String category) {
+  switch (category) {
+    case 'PENTING':
+      return const Color(0xFFB44F42);
+    case 'AKTIVITI':
+      return const Color(0xFF647D62);
+    default:
+      return _purple;
   }
 }
 
@@ -2502,19 +2806,37 @@ class ServicesPage extends StatelessWidget {
   );
 }
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({
     super.key,
     required this.role,
     required this.school,
     required this.user,
+    required this.displayName,
+    required this.onUpdateDisplayName,
     required this.onSignOut,
   });
 
   final String role;
   final String school;
   final User? user;
+  final String displayName;
+  final Future<void> Function(String displayName) onUpdateDisplayName;
   final Future<void> Function() onSignOut;
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  Future<void> _editDisplayName() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _DisplayNameDialog(initialName: widget.displayName),
+    );
+    if (name == null || !mounted) return;
+    await widget.onUpdateDisplayName(name);
+  }
 
   @override
   Widget build(BuildContext context) => _PageScroll(
@@ -2541,11 +2863,11 @@ class ProfilePage extends StatelessWidget {
               CircleAvatar(
                 radius: 34,
                 backgroundColor: _lilac,
-                child: user?.photoURL == null
+                child: widget.user?.photoURL == null
                     ? const Icon(Icons.person_rounded, color: _purple, size: 35)
                     : ClipOval(
                         child: Image.network(
-                          user!.photoURL!,
+                          widget.user!.photoURL!,
                           width: 68,
                           height: 68,
                           fit: BoxFit.cover,
@@ -2559,12 +2881,12 @@ class ProfilePage extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                user?.displayName ?? user?.email ?? 'Pengguna SchoolHub',
+                widget.displayName,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 4),
               Text(
-                user?.email ?? 'E-mel tidak tersedia',
+                widget.user?.email ?? 'E-mel tidak tersedia',
                 style: const TextStyle(color: _muted, fontSize: 13),
               ),
             ],
@@ -2572,17 +2894,24 @@ class ProfilePage extends StatelessWidget {
         ),
         const SizedBox(height: 19),
         _SettingsTile(
+          icon: Icons.edit_outlined,
+          color: _lilac,
+          title: 'Nama paparan',
+          subtitle: widget.displayName,
+          onTap: _editDisplayName,
+        ),
+        _SettingsTile(
           icon: Icons.school_rounded,
           color: _mint,
           title: 'Sekolah saya',
-          subtitle: school,
+          subtitle: widget.school,
           locked: true,
         ),
         _SettingsTile(
           icon: Icons.badge_outlined,
           color: _peach,
           title: 'Jenis akaun',
-          subtitle: role,
+          subtitle: widget.role,
           locked: true,
         ),
         _SettingsTile(
@@ -2612,7 +2941,7 @@ class ProfilePage extends StatelessWidget {
           color: _peach,
           title: 'Log keluar',
           subtitle: 'Log keluar daripada akaun ini',
-          onTap: onSignOut,
+          onTap: widget.onSignOut,
         ),
         const SizedBox(height: 12),
         const _InfoBanner(
@@ -2623,6 +2952,53 @@ class ProfilePage extends StatelessWidget {
         ),
       ],
     ),
+  );
+}
+
+class _DisplayNameDialog extends StatefulWidget {
+  const _DisplayNameDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_DisplayNameDialog> createState() => _DisplayNameDialogState();
+}
+
+class _DisplayNameDialogState extends State<_DisplayNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Tukar nama paparan'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      textCapitalization: TextCapitalization.words,
+      maxLength: 60,
+      decoration: _inputDecoration('Nama yang ingin dipaparkan'),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Batal'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, _controller.text),
+        child: const Text('Simpan'),
+      ),
+    ],
   );
 }
 
@@ -3204,8 +3580,14 @@ class _ModulePageState extends State<ModulePage> {
         return _buildReportList(
           snapshot.data!
               .map(
-                (item) =>
-                    _Report(item.title, item.detail, item.status, id: item.id),
+                (item) => _Report(
+                  item.title,
+                  item.detail,
+                  item.status,
+                  id: item.id,
+                  beforeImageBytes: item.beforeImageBytes,
+                  completionImageBytes: item.completionImageBytes,
+                ),
               )
               .toList(),
         );
@@ -3223,7 +3605,7 @@ class _ModulePageState extends State<ModulePage> {
         color: _mint,
       ),
       const SizedBox(height: 20),
-      _filterChips(['Semua', 'Reported', 'In Progress', 'Done']),
+      _filterChips(['Semua', ..._facilityReportStages]),
       const SizedBox(height: 13),
       if (reports.isEmpty)
         const _InfoBanner(
@@ -3233,7 +3615,9 @@ class _ModulePageState extends State<ModulePage> {
           color: _lilac,
         ),
       for (final report in reports.where(
-        (item) => _filter == 'Semua' || item.status == _filter,
+        (item) =>
+            _filter == 'Semua' ||
+            _facilityReportStages[_facilityReportStep(item.status)] == _filter,
       ))
         _SwipeToDeleteCard(
           itemKey: 'report-${report.id ?? report.title}',
@@ -3249,11 +3633,17 @@ class _ModulePageState extends State<ModulePage> {
           child: _ReportCard(
             report: report,
             canManage: widget.role == 'PK HEM' || widget.role == 'Admin',
-            onStatusChanged: (status) => _setEntryStatus(
+            requireCompletionPhoto: widget.user != null,
+            onStatusChanged: (status, completionImageBytes) => _setEntryStatus(
               isBooking: false,
               itemId: report.id,
               status: status,
-              fallback: () => setState(() => report.status = status),
+              completionImageBytes: completionImageBytes,
+              fallback: () => setState(() {
+                report
+                  ..status = status
+                  ..completionImageBytes = completionImageBytes;
+              }),
             ),
           ),
         ),
@@ -3392,6 +3782,7 @@ class _ModulePageState extends State<ModulePage> {
     required bool isBooking,
     required String? itemId,
     required String status,
+    Uint8List? completionImageBytes,
     required VoidCallback fallback,
   }) async {
     final user = widget.user;
@@ -3415,6 +3806,7 @@ class _ModulePageState extends State<ModulePage> {
           itemId: itemId,
           status: status,
           userId: user.uid,
+          completionImageBytes: completionImageBytes,
         );
       }
     } on FirebaseException catch (error) {
@@ -3506,6 +3898,7 @@ class _ModulePageState extends State<ModulePage> {
             title: result.title,
             location: result.location,
             userId: user.uid,
+            beforeImageBytes: result.imageBytes!,
           );
         } else {
           await repository.addBooking(
@@ -3545,7 +3938,12 @@ class _ModulePageState extends State<ModulePage> {
         } else if (isReport) {
           _reports.insert(
             0,
-            _Report(result.title, result.location, 'Reported'),
+            _Report(
+              result.title,
+              result.location,
+              'Reported',
+              beforeImageBytes: result.imageBytes,
+            ),
           );
         } else {
           _bookings.insert(
@@ -3603,11 +4001,20 @@ class _LostItem {
 }
 
 class _Report {
-  _Report(this.title, this.location, this.status, {this.id});
+  _Report(
+    this.title,
+    this.location,
+    this.status, {
+    this.id,
+    this.beforeImageBytes,
+    this.completionImageBytes,
+  });
   final String? id;
   final String title;
   final String location;
   String status;
+  final Uint8List? beforeImageBytes;
+  Uint8List? completionImageBytes;
 }
 
 class _Booking {
@@ -4190,68 +4597,442 @@ class _LostItemCard extends StatelessWidget {
   }
 }
 
-class _ReportCard extends StatelessWidget {
+class _ReportCard extends StatefulWidget {
   const _ReportCard({
     required this.report,
     required this.canManage,
+    required this.requireCompletionPhoto,
     required this.onStatusChanged,
   });
+
   final _Report report;
   final bool canManage;
-  final ValueChanged<String> onStatusChanged;
+  final bool requireCompletionPhoto;
+  final Future<void> Function(String status, Uint8List? completionImageBytes)
+  onStatusChanged;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Container(
-      padding: const EdgeInsets.all(15),
-      decoration: _cardDecoration(),
-      child: Row(
-        children: [
-          Container(
-            width: 47,
-            height: 47,
-            decoration: BoxDecoration(
-              color: _mint,
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: const Icon(Icons.handyman_rounded, color: _ink),
+  State<_ReportCard> createState() => _ReportCardState();
+}
+
+class _ReportCardState extends State<_ReportCard> {
+  Future<void> _selectStatus(String status) async {
+    Uint8List? completionImageBytes;
+    if (status == 'Done' && widget.requireCompletionPhoto) {
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: _paper,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Ambil gambar bukti siap'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Pilih bukti siap daripada galeri'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+      );
+      if (source == null || !mounted) return;
+
+      try {
+        final image = await ImagePicker().pickImage(
+          source: source,
+          maxWidth: 1100,
+          maxHeight: 1100,
+          imageQuality: 50,
+        );
+        if (image == null || !mounted) return;
+        completionImageBytes = await image.readAsBytes();
+        if (!mounted) return;
+        if (completionImageBytes.length > maxFacilityReportImageBytes) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Gambar bukti siap terlalu besar. Pilih gambar kurang daripada 280 KB.',
+              ),
+            ),
+          );
+          return;
+        }
+      } on Exception {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gambar bukti siap tidak dapat dibuka. Cuba lagi.'),
+          ),
+        );
+        return;
+      }
+    }
+
+    await widget.onStatusChanged(status, completionImageBytes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final report = widget.report;
+    final step = _facilityReportStep(report.status);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: _cardDecoration(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  report.title,
-                  style: Theme.of(context).textTheme.titleMedium,
+                Container(
+                  width: 47,
+                  height: 47,
+                  decoration: BoxDecoration(
+                    color: _mint,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: const Icon(Icons.handyman_rounded, color: _ink),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  report.location,
-                  style: Theme.of(context).textTheme.bodySmall,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        report.title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        report.location,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
-                _StatusPill(
-                  label: report.status,
-                  color: _statusColor(report.status),
+                if (widget.canManage)
+                  PopupMenuButton<String>(
+                    tooltip: 'Kemas kini kemajuan',
+                    icon: const Icon(Icons.more_vert_rounded, color: _muted),
+                    onSelected: _selectStatus,
+                    itemBuilder: (_) => [
+                      for (
+                        var index = 0;
+                        index < _facilityReportStatuses.length;
+                        index++
+                      )
+                        PopupMenuItem(
+                          value: _facilityReportStatuses[index],
+                          child: Text(_facilityReportStages[index]),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _FacilityTimeline(step: step),
+            if (report.beforeImageBytes != null &&
+                report.completionImageBytes != null &&
+                step == _facilityReportStages.length - 1) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Perbandingan sebelum & selepas',
+                style: TextStyle(
+                  color: _ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _BeforeAfterSlider(
+                beforeImageBytes: report.beforeImageBytes!,
+                afterImageBytes: report.completionImageBytes!,
+              ),
+            ] else if (report.beforeImageBytes != null) ...[
+              const SizedBox(height: 14),
+              _ReportPhoto(
+                label: 'Gambar kerosakan',
+                imageBytes: report.beforeImageBytes!,
+              ),
+            ],
+            if (report.completionImageBytes != null &&
+                (report.beforeImageBytes == null ||
+                    step != _facilityReportStages.length - 1)) ...[
+              const SizedBox(height: 14),
+              _ReportPhoto(
+                label: 'Bukti kerja siap',
+                imageBytes: report.completionImageBytes!,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FacilityTimeline extends StatelessWidget {
+  const _FacilityTimeline({required this.step});
+
+  final int step;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      for (var index = 0; index < _facilityReportStages.length; index++)
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 24,
+              child: Column(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 350),
+                    width: 21,
+                    height: 21,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: index <= step ? const Color(0xFF2C9B84) : _paper,
+                      border: Border.all(
+                        color: index <= step
+                            ? const Color(0xFF2C9B84)
+                            : const Color(0xFFD8CEC3),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      index < step
+                          ? Icons.check_rounded
+                          : index == step
+                          ? Icons.circle
+                          : Icons.circle_outlined,
+                      size: index == step ? 8 : 13,
+                      color: index <= step ? Colors.white : _muted,
+                    ),
+                  ),
+                  if (index < _facilityReportStages.length - 1)
+                    SizedBox(
+                      width: 3,
+                      height: 20,
+                      child: Stack(
+                        alignment: Alignment.topCenter,
+                        children: [
+                          Container(color: const Color(0xFFE7E0D8)),
+                          TweenAnimationBuilder<double>(
+                            duration: const Duration(milliseconds: 550),
+                            curve: Curves.easeInOut,
+                            tween: Tween<double>(
+                              begin: 0,
+                              end: index < step ? 1 : 0,
+                            ),
+                            builder: (context, progress, child) => Align(
+                              alignment: Alignment.topCenter,
+                              heightFactor: progress,
+                              child: child,
+                            ),
+                            child: Container(
+                              width: 3,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2C9B84),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                _facilityReportStages[index],
+                style: TextStyle(
+                  color: index <= step ? _ink : _muted,
+                  fontSize: 12,
+                  fontWeight: index == step ? FontWeight.w800 : FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+    ],
+  );
+}
+
+class _BeforeAfterSlider extends StatefulWidget {
+  const _BeforeAfterSlider({
+    required this.beforeImageBytes,
+    required this.afterImageBytes,
+  });
+
+  final Uint8List beforeImageBytes;
+  final Uint8List afterImageBytes;
+
+  @override
+  State<_BeforeAfterSlider> createState() => _BeforeAfterSliderState();
+}
+
+class _BeforeAfterSliderState extends State<_BeforeAfterSlider> {
+  double _position = .5;
+
+  void _updatePosition(double x, double width) {
+    setState(() => _position = (x / width).clamp(0.0, 1.0));
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      final handleLeft = (width * _position - 16).clamp(0.0, width - 32);
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanDown: (details) =>
+              _updatePosition(details.localPosition.dx, width),
+          onPanUpdate: (details) =>
+              _updatePosition(details.localPosition.dx, width),
+          child: SizedBox(
+            width: width,
+            height: 205,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.memory(widget.afterImageBytes, fit: BoxFit.cover),
+                ClipRect(
+                  clipper: _BeforeImageClipper(fraction: _position),
+                  child: Image.memory(
+                    widget.beforeImageBytes,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                Positioned(
+                  left: width * _position - 1,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(width: 2, color: Colors.white),
+                ),
+                Positioned(
+                  left: handleLeft,
+                  top: 86,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: .18),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.drag_indicator_rounded,
+                      size: 20,
+                      color: _ink,
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  top: 10,
+                  left: 10,
+                  child: _PhotoTag(label: 'SEBELUM'),
+                ),
+                const Positioned(
+                  top: 10,
+                  right: 10,
+                  child: _PhotoTag(label: 'SELEPAS'),
                 ),
               ],
             ),
           ),
-          if (canManage)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, color: _muted),
-              onSelected: onStatusChanged,
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'Reported', child: Text('Reported')),
-                PopupMenuItem(value: 'In Progress', child: Text('In Progress')),
-                PopupMenuItem(value: 'Done', child: Text('Done')),
-              ],
-            ),
-        ],
+        ),
+      );
+    },
+  );
+}
+
+class _BeforeImageClipper extends CustomClipper<Rect> {
+  const _BeforeImageClipper({required this.fraction});
+
+  final double fraction;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, 0, size.width * fraction, size.height);
+
+  @override
+  bool shouldReclip(_BeforeImageClipper oldClipper) =>
+      oldClipper.fraction != fraction;
+}
+
+class _PhotoTag extends StatelessWidget {
+  const _PhotoTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .55),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 9,
+        fontWeight: FontWeight.w900,
+        letterSpacing: .5,
       ),
     ),
+  );
+}
+
+class _ReportPhoto extends StatelessWidget {
+  const _ReportPhoto({required this.label, required this.imageBytes});
+
+  final String label;
+  final Uint8List imageBytes;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(
+          color: _muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 7),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.memory(
+          imageBytes,
+          width: double.infinity,
+          height: 160,
+          fit: BoxFit.cover,
+        ),
+      ),
+    ],
   );
 }
 
@@ -4475,9 +5256,13 @@ class _EntrySheetState extends State<_EntrySheet> {
                 ],
               ),
             ],
-            if (widget.isLost) ...[
+            if (widget.isLost || widget.isReport) ...[
               const SizedBox(height: 14),
-              const _FormLabel(label: 'Gambar barang (pilihan)'),
+              _FormLabel(
+                label: widget.isReport
+                    ? 'Gambar kerosakan (wajib untuk perbandingan)'
+                    : 'Gambar barang (pilihan)',
+              ),
               if (_imageBytes != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 9),
@@ -4496,7 +5281,9 @@ class _EntrySheetState extends State<_EntrySheet> {
                 icon: const Icon(Icons.add_a_photo_outlined),
                 label: Text(
                   _imageBytes == null
-                      ? 'Ambil gambar / pilih foto'
+                      ? widget.isReport
+                            ? 'Ambil gambar / pilih foto kerosakan'
+                            : 'Ambil gambar / pilih foto'
                       : 'Tukar foto',
                 ),
                 style: OutlinedButton.styleFrom(
@@ -4568,11 +5355,16 @@ class _EntrySheetState extends State<_EntrySheet> {
       if (image == null || !mounted) return;
       final bytes = await image.readAsBytes();
       if (!mounted) return;
-      if (bytes.length > _maxLostItemImageBytes) {
+      final maxBytes = widget.isReport
+          ? maxFacilityReportImageBytes
+          : _maxLostItemImageBytes;
+      if (bytes.length > maxBytes) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Saiz gambar masih terlalu besar. Sila pilih gambar yang lebih kecil.',
+              widget.isReport
+                  ? 'Gambar aduan terlalu besar. Pilih gambar kurang daripada 280 KB.'
+                  : 'Saiz gambar masih terlalu besar. Sila pilih gambar yang lebih kecil.',
             ),
           ),
         );
@@ -4598,6 +5390,14 @@ class _EntrySheetState extends State<_EntrySheet> {
         _locationController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sila isi lokasi yang berkaitan.')),
+      );
+      return;
+    }
+    if (widget.isReport && _imageBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sila muat naik gambar kerosakan untuk aduan ini.'),
+        ),
       );
       return;
     }
@@ -4634,7 +5434,7 @@ class _EntrySheetState extends State<_EntrySheet> {
         startTime: _timeLabel(_startTime),
         endTime: _timeLabel(_endTime),
         description: widget.isLost ? _descriptionController.text.trim() : '',
-        imageBytes: widget.isLost ? _imageBytes : null,
+        imageBytes: widget.isLost || widget.isReport ? _imageBytes : null,
       ),
     );
   }
@@ -5370,15 +6170,66 @@ BoxDecoration _cardDecoration() => BoxDecoration(
   border: Border.all(color: const Color(0xFFF0EAE2)),
 );
 
+int _facilityReportStep(String status) {
+  switch (status) {
+    case 'In Progress':
+    case 'Dalam Siasatan':
+      return 1;
+    case 'Repairing':
+    case 'Sedang Dibaiki':
+      return 2;
+    case 'Done':
+    case 'Selesai':
+      return 3;
+    case 'Reported':
+    case 'Diterima':
+    default:
+      return 0;
+  }
+}
+
+String _formatMalayDate(DateTime date) {
+  const weekdays = [
+    'Isnin',
+    'Selasa',
+    'Rabu',
+    'Khamis',
+    'Jumaat',
+    'Sabtu',
+    'Ahad',
+  ];
+  const months = [
+    'Januari',
+    'Februari',
+    'Mac',
+    'April',
+    'Mei',
+    'Jun',
+    'Julai',
+    'Ogos',
+    'September',
+    'Oktober',
+    'November',
+    'Disember',
+  ];
+  return '${weekdays[date.weekday - 1]}, ${date.day} ${months[date.month - 1]}'
+      .toUpperCase();
+}
+
 Color _statusColor(String status) {
   switch (status) {
     case 'Approved':
     case 'Done':
+    case 'Selesai':
     case 'Dituntut':
       return _mint;
     case 'In Progress':
+    case 'Repairing':
+    case 'Dalam Siasatan':
+    case 'Sedang Dibaiki':
       return _lilac;
     case 'Reported':
+    case 'Diterima':
       return _peach;
     default:
       return _peach;

@@ -8,6 +8,7 @@ import 'schools.dart';
 
 const _allSchoolsId = 'all-schools';
 const maxAnnouncementImageBytes = 700000;
+const maxFacilityReportImageBytes = 280000;
 
 class SchoolServiceEntry {
   const SchoolServiceEntry({
@@ -16,6 +17,8 @@ class SchoolServiceEntry {
     required this.detail,
     required this.status,
     required this.dateLabel,
+    this.beforeImageBytes,
+    this.completionImageBytes,
   });
 
   final String id;
@@ -23,6 +26,8 @@ class SchoolServiceEntry {
   final String detail;
   final String status;
   final String dateLabel;
+  final Uint8List? beforeImageBytes;
+  final Uint8List? completionImageBytes;
 
   factory SchoolServiceEntry.fromDocument(
     QueryDocumentSnapshot<Map<String, dynamic>> document, {
@@ -40,6 +45,8 @@ class SchoolServiceEntry {
       dateLabel: createdAt is Timestamp
           ? _formatDate(createdAt.toDate())
           : 'Baru sahaja',
+      beforeImageBytes: (data['beforeImage'] as Blob?)?.bytes,
+      completionImageBytes: (data['completionImage'] as Blob?)?.bytes,
     );
   }
 }
@@ -226,13 +233,20 @@ class SchoolServicesRepository {
     required String title,
     required String location,
     required String userId,
-  }) => _addEntry('facilityReports', {
-    'title': title,
-    'location': location,
-    'status': 'Reported',
-    'createdBy': userId,
-    'createdAt': FieldValue.serverTimestamp(),
-  });
+    required Uint8List beforeImageBytes,
+  }) async {
+    if (beforeImageBytes.length > maxFacilityReportImageBytes) {
+      throw ArgumentError('Saiz gambar aduan terlalu besar.');
+    }
+    await _addEntry('facilityReports', {
+      'title': title,
+      'location': location,
+      'status': 'Reported',
+      'beforeImage': Blob(beforeImageBytes),
+      'createdBy': userId,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   Future<void> addBooking({
     required String title,
@@ -294,12 +308,30 @@ class SchoolServicesRepository {
     required String itemId,
     required String status,
     required String userId,
-  }) => _updateStatus(
-    'facilityReports',
-    itemId: itemId,
-    status: status,
-    userId: userId,
-  );
+    Uint8List? completionImageBytes,
+  }) async {
+    if (status == 'Done' && completionImageBytes == null) {
+      throw ArgumentError('Gambar bukti siap diperlukan.');
+    }
+    if (completionImageBytes != null &&
+        completionImageBytes.length > maxFacilityReportImageBytes) {
+      throw ArgumentError('Saiz gambar bukti siap terlalu besar.');
+    }
+    final update = <String, dynamic>{
+      'status': status,
+      'updatedBy': userId,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (completionImageBytes != null)
+        'completionImage': Blob(completionImageBytes)
+      else if (status != 'Done')
+        'completionImage': FieldValue.delete(),
+    };
+    await _school
+        .doc('facilityReports')
+        .collection('items')
+        .doc(itemId)
+        .update(update);
+  }
 
   Future<void> updateBookingStatus({
     required String itemId,

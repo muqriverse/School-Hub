@@ -55,6 +55,36 @@ void main() {
     expect(find.text('SchoolHub'), findsOneWidget);
     expect(find.text('Apa yang anda perlukan?'), findsOneWidget);
     expect(find.text('Hari Sukan Tahunan 2025'), findsNothing);
+    final today = DateTime.now();
+    const weekdays = [
+      'ISNIN',
+      'SELASA',
+      'RABU',
+      'KHAMIS',
+      'JUMAAT',
+      'SABTU',
+      'AHAD',
+    ];
+    const months = [
+      'JANUARI',
+      'FEBRUARI',
+      'MAC',
+      'APRIL',
+      'MEI',
+      'JUN',
+      'JULAI',
+      'OGOS',
+      'SEPTEMBER',
+      'OKTOBER',
+      'NOVEMBER',
+      'DISEMBER',
+    ];
+    expect(
+      find.text(
+        '${weekdays[today.weekday - 1]}, ${today.day} ${months[today.month - 1]}',
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Notis'));
     await tester.pumpAndSettle();
@@ -73,6 +103,32 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: MainShell()));
     await tester.pumpAndSettle();
 
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('profile lets a user edit their display name', (
+    WidgetTester tester,
+  ) async {
+    String? savedName;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfilePage(
+          role: 'Guru',
+          school: supportedSchools.first,
+          user: null,
+          displayName: 'Nama Lama',
+          onUpdateDisplayName: (name) async => savedName = name,
+          onSignOut: () async {},
+        ),
+      ),
+    );
+    await tester.tap(find.text('Nama paparan'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Nama Baharu');
+    await tester.tap(find.text('Simpan'));
+    await tester.pumpAndSettle();
+
+    expect(savedName, 'Nama Baharu');
     expect(tester.takeException(), isNull);
   });
 
@@ -169,10 +225,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Done').last);
+    await tester.tap(find.text('Selesai').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Done'), findsWidgets);
+    expect(find.text('Selesai'), findsWidgets);
   });
 
   testWidgets('Admin can update facility report status', (
@@ -190,10 +246,59 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Done').last);
+    await tester.tap(find.text('Selesai').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('Done'), findsWidgets);
+    expect(find.text('Selesai'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('facility reports show the four tracking stages', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ModulePage(
+          module: 'Aduan fasiliti',
+          role: 'Guru',
+          school: 'Sekolah Menengah Kebangsaan Cochrane',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Diterima'), findsWidgets);
+    expect(find.text('Dalam Siasatan'), findsWidgets);
+    expect(find.text('Sedang Dibaiki'), findsWidgets);
+    expect(find.text('Selesai'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('facility report requires a damage photo', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: ModulePage(
+          module: 'Aduan fasiliti',
+          role: 'Guru',
+          school: 'Sekolah Menengah Kebangsaan Cochrane',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buat aduan'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(0), 'Lampu rosak');
+    await tester.enterText(find.byType(TextField).at(1), 'Blok A');
+    await tester.tap(find.text('Hantar aduan'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Sila muat naik gambar kerosakan untuk aduan ini.'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

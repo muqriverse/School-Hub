@@ -37,11 +37,14 @@ atau caj berasingan; semak pelan projek sebelum mengaktifkannya.
    sekolah atau jawatan pada profil pemohon dikemas kini. Permohonan disimpan di
    `schoolTransferRequests`.
    Aduan fasiliti, tempahan dan pengumuman disimpan dalam subkoleksi
-   `schools/{schoolId}/services`. PK HEM boleh mengubah status aduan kepada
-   `Reported`, `In Progress` atau `Done`, mengubah status tempahan kepada
-   `Pending` atau `Approved`; setiap tempahan menyimpan tarikh, masa mula dan
-   masa tamat. Pengumuman mempunyai tarikh yang boleh dipilih dan dipaparkan
-   pada kad pengumuman. PK HEM boleh memadam item Lost & Found, aduan fasiliti,
+   `schools/{schoolId}/services`. Aduan fasiliti memerlukan gambar kerosakan dan
+   memaparkan penjejakan `Diterima` → `Dalam Siasatan` → `Sedang Dibaiki` →
+   `Selesai`; PK HEM atau Admin perlu memuat naik gambar bukti siap sebelum
+   menandakan aduan selesai. Aduan selesai memaparkan slider perbandingan gambar sebelum
+   dan selepas. Status tempahan boleh diubah kepada `Pending` atau `Approved`;
+   setiap tempahan menyimpan tarikh, masa mula dan masa tamat. Pengumuman
+   mempunyai tarikh yang boleh dipilih dan dipaparkan pada kad pengumuman.
+   PK HEM boleh memadam item Lost & Found, aduan fasiliti,
    tempahan dan pengumuman dengan swipe ke kiri dan pengesahan. Ibu bapa hanya
    boleh melihat Lost & Found dan Pengumuman, serta boleh meninggalkan komen
    pada laporan Lost & Found yang dapat dilihat oleh ahli sekolah. Akses PK HEM

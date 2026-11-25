@@ -92,6 +92,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ),
                 ),
                 const SizedBox(height: 24),
+                const _MaintenanceControl(),
+                const SizedBox(height: 24),
                 _TransferSummary(
                   stream: _pendingTransfers,
                   onTap: () => widget.onOpenModule(
@@ -148,6 +150,133 @@ class _SchoolStreams {
 
   final SchoolServicesRepository schoolServices;
   final LostFoundRepository lostFound;
+}
+
+class _MaintenanceControl extends StatefulWidget {
+  const _MaintenanceControl();
+
+  @override
+  State<_MaintenanceControl> createState() => _MaintenanceControlState();
+}
+
+class _MaintenanceControlState extends State<_MaintenanceControl> {
+  bool _updating = false;
+
+  Future<void> _setMaintenance(bool enabled) async {
+    if (_updating) return;
+    setState(() => _updating = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('appConfig')
+          .doc('maintenance')
+          .set({
+            'enabled': enabled,
+            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedBy': FirebaseAuth.instance.currentUser?.uid,
+          }, SetOptions(merge: true));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Mode penyelenggaraan telah dihidupkan.'
+                : 'Mode penyelenggaraan telah dimatikan.',
+          ),
+        ),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tetapan gagal disimpan (${error.code}).')),
+      );
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reference = FirebaseFirestore.instance
+        .collection('appConfig')
+        .doc('maintenance');
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: reference.snapshots(),
+      builder: (context, snapshot) {
+        final enabled = snapshot.data?.data()?['enabled'] == true;
+        return Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: enabled ? const Color(0xFFFFF4E8) : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: enabled
+                  ? const Color(0xFFE8C89D)
+                  : const Color(0xFFF0EAE2),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: enabled
+                      ? const Color(0xFFFFDDBA)
+                      : const Color(0xFFDFE5DA),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Icon(
+                  enabled
+                      ? Icons.build_circle_rounded
+                      : Icons.check_circle_outline_rounded,
+                  color: enabled
+                      ? const Color(0xFF9A6B32)
+                      : const Color(0xFF4A4038),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Penjagaan aplikasi',
+                      style: TextStyle(
+                        color: Color(0xFF4A4038),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      enabled
+                          ? 'Aplikasi pengguna sedang ditutup untuk penyelenggaraan.'
+                          : 'Aplikasi pengguna sedang beroperasi seperti biasa.',
+                      style: const TextStyle(
+                        color: Color(0xFF8A7E74),
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              if (_updating)
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Switch(value: enabled, onChanged: _setMaintenance),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _TransferSummary extends StatelessWidget {

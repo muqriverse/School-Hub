@@ -51,6 +51,22 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['PK HEM', 'Admin'];
     }
 
+    match /appConfig/maintenance {
+      allow read: if signedIn();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['enabled', 'updatedAt', 'updatedBy'])
+        && request.resource.data.enabled is bool
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['enabled', 'updatedAt', 'updatedBy'])
+        && request.resource.data.enabled is bool
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn()
@@ -137,6 +153,14 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.requesterRole
         ) == request.resource.data.role
         && getAfter(/databases/$(database)/documents/schoolTransferRequests/$(request.resource.data.lastSchoolTransferRequestId)).data.reviewedBy == request.auth.uid;
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && resource.data.setupComplete == true
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() > 0
+        && request.resource.data.displayName.size() <= 60;
       allow delete: if false;
     }
 
@@ -248,13 +272,13 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId}/services/facilityReports/items/{itemId} {
-      allow read: if isSchoolStaff(schoolId);
+      allow read: if isSchoolMember(schoolId);
       allow create: if isSchoolStaff(schoolId)
         && request.resource.data.keys().hasOnly([
-          'title', 'location', 'status', 'createdBy', 'createdAt'
+          'title', 'location', 'status', 'beforeImage', 'createdBy', 'createdAt'
         ])
         && request.resource.data.keys().hasAll([
-          'title', 'location', 'status', 'createdBy', 'createdAt'
+          'title', 'location', 'status', 'beforeImage', 'createdBy', 'createdAt'
         ])
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
@@ -263,12 +287,20 @@ service cloud.firestore {
         && request.resource.data.location.size() > 0
         && request.resource.data.location.size() <= 160
         && request.resource.data.status == 'Reported'
+        && request.resource.data.beforeImage is bytes
+        && request.resource.data.beforeImage.size() <= 280000
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt == request.time;
       allow update: if isSchoolManager(schoolId)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'updatedBy', 'updatedAt'])
-        && request.resource.data.status in ['Reported', 'In Progress', 'Done']
+          .hasOnly(['status', 'completionImage', 'updatedBy', 'updatedAt'])
+        && request.resource.data.status in ['Reported', 'In Progress', 'Repairing', 'Done']
+        && (request.resource.data.status != 'Done'
+          || (request.resource.data.completionImage is bytes
+            && request.resource.data.completionImage.size() <= 280000))
+        && (!('completionImage' in request.resource.data.keys())
+          || (request.resource.data.completionImage is bytes
+            && request.resource.data.completionImage.size() <= 280000))
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.updatedAt == request.time;
       allow delete: if isSchoolManager(schoolId);
